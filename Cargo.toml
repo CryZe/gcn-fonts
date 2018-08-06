@@ -1,0 +1,8 @@
+[package]
+name = "gcn-fonts"
+version = "0.1.0"
+authors = ["Christopher Serr <christopher.serr@gmail.com>"]
+
+[dependencies]
+gcn-fonts-macro = { path = "gcn-fonts-macro" }
+gcn = { git = "https://github.com/CryZe/gcn", rev = "00cacaad3e3eb2ed2bd54a4a1ab6c3a469a8b96f" }

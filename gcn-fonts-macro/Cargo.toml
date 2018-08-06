@@ -1,0 +1,13 @@
+[package]
+name = "gcn-fonts-macro"
+version = "0.1.0"
+authors = ["Christopher Serr <christopher.serr@gmail.com>"]
+
+[dependencies]
+syn = "0.14.7"
+quote = "0.6.5"
+image = { version = "0.19.0", default-features = false }
+rusttype = { git = "https://gitlab.redox-os.org/CryZe/rusttype.git", rev = "0b9e81ddbe25b899d862896d3ce07ba753ff29c4", features = ["gpu_cache"] }
+
+[lib]
+proc-macro = true
