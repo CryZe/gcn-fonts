@@ -4,139 +4,220 @@
 extern crate gcn;
 extern crate gcn_fonts_macro;
 
+use core::cell::UnsafeCell;
 use gcn::gx;
 
 pub mod prelude;
 
-use prelude::{Font, Glyph, UploadedFont};
+use prelude::Glyph;
 
-pub fn get_coords(font: &Font, c: char) -> Option<([[f32; 2]; 4], f32, f32, f32)> {
-    let c = (c as usize).checked_sub(0x21)?;
-    let Glyph { descender, bounds } = font.glyphs.get(c)?;
-
-    let ty = bounds.min.y;
-    let by = bounds.max.y;
-    let rx = bounds.max.x;
-    let lx = bounds.min.x;
-    let width = (bounds.max.x - bounds.min.x) * font.width;
-    let height = (bounds.max.y - bounds.min.y) * font.height;
-
-    Some((
-        [[lx, ty], [rx, ty], [lx, by], [rx, by]],
-        width,
-        height,
-        *descender,
-    ))
+pub struct DecodedGlyph<'a> {
+    glyph: &'a Glyph,
+    advance_x: f32,
+    width: f32,
+    height: f32,
 }
 
-fn print_char(
-    font: &UploadedFont,
-    c: char,
-    x: f32,
-    y: f32,
-    top_color: u32,
-    bottom_color: u32,
-) -> f32 {
-    unsafe {
-        gx::clear_vtx_desc();
-        gx::set_vtx_desc(gx::VA_POS as u8, gx::DIRECT);
-        gx::set_vtx_desc(gx::VA_CLR0 as u8, gx::DIRECT);
-        gx::set_vtx_desc(gx::VA_TEX0 as u8, gx::DIRECT);
+impl<'a> DecodedGlyph<'a> {
+    pub fn position(&self, x: f32, y: f32) -> PositionedGlyph {
+        let y = y + self.glyph.descender;
+        let ty = y - self.height;
+        let by = y;
+        let rx = x + self.width;
+        let lx = x;
+        let vertices = [[lx, ty], [rx, ty], [rx, by], [lx, by]];
 
-        gx::set_vtx_attr_fmt(gx::VTXFMT0, gx::VA_POS, gx::POS_XY, gx::F32, 0);
-        gx::set_vtx_attr_fmt(gx::VTXFMT0, gx::VA_CLR0, gx::CLR_RGBA, gx::RGBA8, 0);
-        gx::set_vtx_attr_fmt(gx::VTXFMT0, gx::VA_TEX0, gx::TEX_ST, gx::F32, 0);
+        let next_x = x + self.advance_x;
 
-        gx::set_num_tex_gens(1);
-        gx::set_tex_coord_gen(
-            gx::TEXCOORD0 as u16,
-            gx::TG_MTX2X4,
-            gx::TG_TEX0,
-            gx::IDENTITY,
-        );
+        let bounds = &self.glyph.bounds;
+        let ty = bounds.min.y;
+        let by = bounds.max.y;
+        let rx = bounds.max.x;
+        let lx = bounds.min.x;
+        let tex_coords = [[lx, ty], [rx, ty], [rx, by], [lx, by]];
 
-        // gx::set_tev_op(gx::TEVSTAGE0, gx::REPLACE);
-        gx::set_tev_color_in(
-            gx::TEVSTAGE0,
-            gx::CC_ZERO,
-            gx::CC_ZERO,
-            gx::CC_ZERO,
-            gx::CC_RASC,
-        );
-        gx::set_tev_alpha_in(
-            gx::TEVSTAGE0,
-            gx::CA_ZERO,
-            gx::CA_RASA,
-            gx::CA_TEXA,
-            gx::CA_ZERO,
-        );
-        gx::set_tev_color_op(
-            gx::TEVSTAGE0,
-            gx::TEV_ADD,
-            gx::TB_ZERO,
-            gx::CS_SCALE_1,
-            gx::TRUE,
-            gx::TEVPREV,
-        );
-        gx::set_tev_alpha_op(
-            gx::TEVSTAGE0,
-            gx::TEV_ADD,
-            gx::TB_ZERO,
-            gx::CS_SCALE_1,
-            gx::TRUE,
-            gx::TEVPREV,
-        );
-        gx::set_tev_order(gx::TEVSTAGE0, gx::TEXCOORD0, gx::TEXMAP0, gx::COLOR0A0);
-        gx::load_tex_obj(font.texture.get(), gx::TEXMAP0 as u8);
+        PositionedGlyph {
+            vertices,
+            tex_coords,
+            next_x,
+        }
+    }
+}
 
-        // gx::load_pos_mtx_imm(&mut system::j3d::CAMERA_MATRIX, gx::PNMTX0);
-        if let Some((coords, width, height, descender)) = get_coords(&font.font, c) {
-            let y = y + font.font.size + descender;
-            let shift = 1.5; //font.font.size * (1.5 / 50.0);
+pub struct PositionedGlyph {
+    vertices: [[f32; 2]; 4],
+    tex_coords: [[f32; 2]; 4],
+    next_x: f32,
+}
+
+impl PositionedGlyph {
+    pub fn render(&self, color: u32) {
+        unsafe {
             gx::begin(gx::QUADS, gx::VTXFMT0, 4);
-            {
-                let x = x + shift;
-                let y = y + shift;
-                gx::submit_f32s(&[x, y - height]);
-                gx::submit_u32(0x00_00_00_A0);
-                gx::submit_f32s(&coords[0]);
-
-                gx::submit_f32s(&[x + width, y - height]);
-                gx::submit_u32(0x00_00_00_A0);
-                gx::submit_f32s(&coords[1]);
-
-                gx::submit_f32s(&[x + width, y]);
-                gx::submit_u32(0x00_00_00_A0);
-                gx::submit_f32s(&coords[3]);
-
-                gx::submit_f32s(&[x, y]);
-                gx::submit_u32(0x00_00_00_A0);
-                gx::submit_f32s(&coords[2]);
+            for (position, tex_coord) in self.vertices.iter().zip(&self.tex_coords) {
+                gx::submit_f32s(position);
+                gx::submit_u32(color);
+                gx::submit_f32s(tex_coord);
             }
             gx::end();
+        }
+    }
+}
 
-            gx::begin(gx::QUADS, gx::VTXFMT0, 4);
-            {
-                gx::submit_f32s(&[x, y - height]);
-                gx::submit_u32(top_color);
-                gx::submit_f32s(&coords[0]);
+pub struct UploadedFont {
+    texture: UnsafeCell<gx::TexObj>,
+    pub font: Font,
+}
 
-                gx::submit_f32s(&[x + width, y - height]);
-                gx::submit_u32(top_color);
-                gx::submit_f32s(&coords[1]);
+impl UploadedFont {
+    pub fn lookup_glyph(&self, c: char) -> Option<DecodedGlyph<'_>> {
+        let c = (c as usize).checked_sub(0x21)?;
+        let glyph = self.font.glyphs.get(c)?;
+        let bounds = &glyph.bounds;
+        let width = (bounds.max.x - bounds.min.x) * self.font.width;
+        let height = (bounds.max.y - bounds.min.y) * self.font.height;
+        let advance_x = width;// + 0.5;
 
-                gx::submit_f32s(&[x + width, y]);
-                gx::submit_u32(bottom_color);
-                gx::submit_f32s(&coords[3]);
+        Some(DecodedGlyph {
+            glyph,
+            width,
+            height,
+            advance_x,
+        })
+    }
 
-                gx::submit_f32s(&[x, y]);
-                gx::submit_u32(bottom_color);
-                gx::submit_f32s(&coords[2]);
-            }
-            gx::end();
-            width
+    /// Returns the next x coordinate
+    pub fn render_char(&self, c: char, x: f32, y: f32, color: u32) -> f32 {
+        if let Some(glyph) = self.lookup_glyph(c) {
+            let glyph = glyph.position(x, y);
+            glyph.render(color);
+            glyph.next_x
         } else {
-            font.font.space_advance
+            x + self.font.space_advance
+        }
+    }
+
+    pub fn render_chars<C>(&self, chars: C, mut x: f32, y: f32, color: u32)
+    where
+        C: IntoIterator<Item = char>,
+    {
+        for c in chars {
+            x = self.render_char(c, x, y, color);
+        }
+    }
+
+    pub fn measure_text_width<C>(&self, chars: C) -> f32
+    where
+        C: IntoIterator<Item = char>,
+    {
+        chars
+            .into_iter()
+            .map(|c| self.measure_char(c))
+            .sum()
+    }
+
+    pub fn measure_char(&self, c: char) -> f32 {
+        if let Some(glyph) = self.lookup_glyph(c) {
+            glyph.advance_x
+        } else {
+            self.font.space_advance
+        }
+    }
+
+    pub fn render_chars_centered<C>(&self, chars: C, x: f32, y: f32, color: u32)
+    where
+        C: IntoIterator<Item = char>,
+        C::IntoIter: Clone,
+    {
+        let iter = chars.into_iter();
+        let width = self.measure_text_width(iter.clone());
+        let x = x - 0.5 * width;
+        self.render_chars(iter, x, y, color);
+    }
+
+    pub fn setup_rendering(&self) {
+        unsafe {
+            gx::clear_vtx_desc();
+            gx::set_vtx_desc(gx::VA_POS as u8, gx::DIRECT);
+            gx::set_vtx_desc(gx::VA_CLR0 as u8, gx::DIRECT);
+            gx::set_vtx_desc(gx::VA_TEX0 as u8, gx::DIRECT);
+
+            gx::set_vtx_attr_fmt(gx::VTXFMT0, gx::VA_POS, gx::POS_XY, gx::F32, 0);
+            gx::set_vtx_attr_fmt(gx::VTXFMT0, gx::VA_CLR0, gx::CLR_RGBA, gx::RGBA8, 0);
+            gx::set_vtx_attr_fmt(gx::VTXFMT0, gx::VA_TEX0, gx::TEX_ST, gx::F32, 0);
+
+            gx::set_num_tex_gens(1);
+            gx::set_tex_coord_gen(
+                gx::TEXCOORD0 as u16,
+                gx::TG_MTX2X4,
+                gx::TG_TEX0,
+                gx::IDENTITY,
+            );
+
+            gx::set_tev_color_in(
+                gx::TEVSTAGE0,
+                gx::CC_ZERO,
+                gx::CC_ZERO,
+                gx::CC_ZERO,
+                gx::CC_RASC,
+            );
+            gx::set_tev_alpha_in(
+                gx::TEVSTAGE0,
+                gx::CA_ZERO,
+                gx::CA_RASA,
+                gx::CA_TEXA,
+                gx::CA_ZERO,
+            );
+            gx::set_tev_color_op(
+                gx::TEVSTAGE0,
+                gx::TEV_ADD,
+                gx::TB_ZERO,
+                gx::CS_SCALE_1,
+                gx::TRUE,
+                gx::TEVPREV,
+            );
+            gx::set_tev_alpha_op(
+                gx::TEVSTAGE0,
+                gx::TEV_ADD,
+                gx::TB_ZERO,
+                gx::CS_SCALE_1,
+                gx::TRUE,
+                gx::TEVPREV,
+            );
+            gx::set_tev_order(gx::TEVSTAGE0, gx::TEXCOORD0, gx::TEXMAP0, gx::COLOR0A0);
+            gx::load_tex_obj(self.texture.get(), gx::TEXMAP0 as u8);
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Font {
+    pub width: f32,
+    pub height: f32,
+    pub size: f32,
+    pub space_advance: f32,
+    pub data: &'static [u8],
+    pub glyphs: &'static [Glyph],
+}
+
+impl Font {
+    pub fn upload(&self) -> UploadedFont {
+        let mut tex_obj = gx::TexObj::default();
+        unsafe {
+            gx::init_tex_obj(
+                &mut tex_obj,
+                self.data.as_ptr(),
+                self.width as u16,
+                self.height as u16,
+                gx::TF_I8,
+                gx::CLAMP,
+                gx::CLAMP,
+                gx::FALSE,
+            );
+        }
+        UploadedFont {
+            texture: UnsafeCell::new(tex_obj),
+            font: *self,
         }
     }
 }
