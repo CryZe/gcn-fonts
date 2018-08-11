@@ -137,6 +137,12 @@ impl UploadedFont {
 
     pub fn setup_rendering(&self) {
         unsafe {
+            gx::set_blend_mode(
+                gx::BM_BLEND,
+                gx::BL_SRCALPHA,
+                gx::BL_INVSRCALPHA,
+                gx::LO_SET,
+            );
             gx::clear_vtx_desc();
             gx::set_vtx_desc(gx::VA_POS as u8, gx::DIRECT);
             gx::set_vtx_desc(gx::VA_CLR0 as u8, gx::DIRECT);
