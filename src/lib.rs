@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(use_extern_macros)]
 
 extern crate gcn;
 extern crate gcn_fonts_macro;
@@ -76,7 +75,7 @@ impl UploadedFont {
         let bounds = &glyph.bounds;
         let width = (bounds.max.x - bounds.min.x) * self.font.width;
         let height = (bounds.max.y - bounds.min.y) * self.font.height;
-        let advance_x = width;// + 0.5;
+        let advance_x = width; // + 0.5;
 
         Some(DecodedGlyph {
             glyph,
@@ -110,10 +109,7 @@ impl UploadedFont {
     where
         C: IntoIterator<Item = char>,
     {
-        chars
-            .into_iter()
-            .map(|c| self.measure_char(c))
-            .sum()
+        chars.into_iter().map(|c| self.measure_char(c)).sum()
     }
 
     pub fn measure_char(&self, c: char) -> f32 {
@@ -141,7 +137,12 @@ impl UploadedFont {
             gx::set_vtx_desc(gx::VA_POS as u8, gx::DIRECT);
             gx::set_vtx_desc(gx::VA_CLR0 as u8, gx::DIRECT);
 
-            gx::set_tev_order(gx::TEVSTAGE0, gx::TEXCOORD0, gx::TEXMAP_DISABLE, gx::COLOR0A0);
+            gx::set_tev_order(
+                gx::TEVSTAGE0,
+                gx::TEXCOORD0,
+                gx::TEXMAP_DISABLE,
+                gx::COLOR0A0,
+            );
         }
     }
 
