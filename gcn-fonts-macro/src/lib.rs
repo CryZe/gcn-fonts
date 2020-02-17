@@ -1,8 +1,4 @@
 extern crate proc_macro;
-#[macro_use]
-extern crate syn;
-extern crate image;
-extern crate rusttype;
 
 const I8_BLOCK_WIDTH: usize = 8;
 const I8_BLOCK_HEIGHT: usize = 4;
@@ -11,13 +7,26 @@ use proc_macro::TokenStream;
 
 use image::imageops::overlay;
 use image::GrayImage;
+use proc_macro_hack::proc_macro_hack;
 use rusttype::gpu_cache::CacheBuilder;
 use rusttype::Point;
 use rusttype::{Font, Rect, Scale};
-use syn::{synom::Synom, LitFloat, LitInt, LitStr};
+use syn::{
+    parse::{Parse, ParseStream},
+    LitFloat, LitInt, LitStr,
+};
 
 use std::fs;
 use std::io::prelude::*;
+
+mod kw {
+    syn::custom_keyword!(path);
+    syn::custom_keyword!(resolution);
+    syn::custom_keyword!(size);
+    syn::custom_punctuation!(Colon, :);
+    syn::custom_punctuation!(Comma, ,);
+    syn::custom_punctuation!(Star, *);
+}
 
 #[derive(Debug)]
 struct Glyph {
@@ -30,36 +39,56 @@ struct Resolution {
     height: LitInt,
 }
 
-impl Synom for Resolution {
-    named!(parse -> Self, do_parse!(
-        custom_keyword!(resolution) >>
-        punct!(:) >>
-        width: syn!(LitInt) >>
-        punct!(*) >>
-        height: syn!(LitInt) >>
-        option!(punct!(,)) >>
-        (Resolution {
-            width,
-            height,
-        })
-    ));
+impl Parse for Resolution {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let _: kw::Colon = input.parse()?;
+        let width: LitInt = input.parse()?;
+        let _: kw::Star = input.parse()?;
+        let height: LitInt = input.parse()?;
+        let _: Option<kw::Comma> = input.parse()?;
+        Ok(Resolution { width, height })
+    }
 }
+
+// impl Synom for Resolution {
+//     named!(parse -> Self, do_parse!(
+//         custom_keyword!(resolution) >>
+//         punct!(:) >>
+//         width: syn!(LitInt) >>
+//         punct!(*) >>
+//         height: syn!(LitInt) >>
+//         option!(punct!(,)) >>
+//         (Resolution {
+//             width,
+//             height,
+//         })
+//     ));
+// }
 
 struct Size {
     size: LitFloat,
 }
 
-impl Synom for Size {
-    named!(parse -> Self, do_parse!(
-        custom_keyword!(size) >>
-        punct!(:) >>
-        size: syn!(LitFloat) >>
-        option!(punct!(,)) >>
-        (Size {
-            size,
-        })
-    ));
+impl Parse for Size {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let _: kw::Colon = input.parse()?;
+        let size: LitFloat = input.parse()?;
+        let _: Option<kw::Comma> = input.parse()?;
+        Ok(Size { size })
+    }
 }
+
+// impl Synom for Size {
+//     named!(parse -> Self, do_parse!(
+//         custom_keyword!(size) >>
+//         punct!(:) >>
+//         size: syn!(LitFloat) >>
+//         option!(punct!(,)) >>
+//         (Size {
+//             size,
+//         })
+//     ));
+// }
 
 struct Params {
     path: LitStr, // 💯🔥😂👌
@@ -67,42 +96,72 @@ struct Params {
     size: Option<Size>,
 }
 
-impl Synom for Params {
-    named!(parse -> Self, do_parse!(
-        custom_keyword!(path) >>
-        punct!(:) >>
-        path: syn!(LitStr) >>
-        option!(punct!(,)) >>
-        resolution: option!(syn!(Resolution)) >>
-        size: option!(syn!(Size)) >>
-        (Params {
+// impl Synom for Params {
+//     named!(parse -> Self, do_parse!(
+//         custom_keyword!(path) >>
+//         punct!(:) >>
+//         path: syn!(LitStr) >>
+//         option!(punct!(,)) >>
+//         resolution: option!(syn!(Resolution)) >>
+//         size: option!(syn!(Size)) >>
+//         (Params {
+//             path,
+//             resolution,
+//             size,
+//         })
+//     ));
+// }
+
+impl Parse for Params {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let _: kw::path = input.parse()?;
+        let _: kw::Colon = input.parse()?;
+        let path = input.parse()?;
+        let _: Option<kw::Comma> = input.parse()?;
+        let resolution_kw: Option<kw::resolution> = input.parse()?;
+        let resolution = if let Some(_) = resolution_kw {
+            Some(input.parse()?)
+        } else {
+            None
+        };
+        let size_kw: Option<kw::size> = input.parse()?;
+        let size = if let Some(_) = size_kw {
+            Some(input.parse()?)
+        } else {
+            None
+        };
+        Ok(Params {
             path,
             resolution,
             size,
         })
-    ));
+    }
 }
 
-#[proc_macro]
+#[proc_macro_hack]
 pub fn include_font(input: TokenStream) -> TokenStream {
     let params: Params = syn::parse(input).unwrap();
 
     let (width, height) = params
         .resolution
-        .map(|r| (r.width.value() as u32, r.height.value() as u32))
+        .map(|r| {
+            (
+                r.width.base10_parse().unwrap(),
+                r.height.base10_parse().unwrap(),
+            )
+        })
         .unwrap_or((256, 256));
-    let size = params.size.map(|s| s.size.value() as f32).unwrap_or(50.0);
+    let size = params
+        .size
+        .map(|s| s.size.base10_parse().unwrap())
+        .unwrap_or(50.0);
     let scale = Scale::uniform(size);
 
     let font_data = fs::read(params.path.value()).unwrap();
     let font = Font::from_bytes(&font_data).expect("Error constructing Font");
     let mut atlas = GrayImage::new(width, height);
 
-    let mut cache = CacheBuilder {
-        width,
-        height,
-        ..CacheBuilder::default()
-    }.build();
+    let mut cache = CacheBuilder::default().dimensions(width, height).build();
 
     let space_advance = font.glyph(' ').scaled(scale).h_metrics().advance_width;
 
@@ -129,10 +188,10 @@ pub fn include_font(input: TokenStream) -> TokenStream {
             Glyph {
                 descender: glyph.pixel_bounding_box().unwrap().max.y as f32,
                 bounds: cache
-                .rect_for(0, glyph)
-                .unwrap()//expect("Failed to get rect.")
-                .unwrap()//expect("Failed to unwrap TextureCoords")
-                .0,
+                    .rect_for(0, glyph)
+                    .unwrap() //expect("Failed to get rect.")
+                    .unwrap() //expect("Failed to unwrap TextureCoords")
+                    .0,
             }
         })
         .collect::<Vec<_>>();

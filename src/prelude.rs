@@ -1,5 +1,4 @@
-pub use gcn_fonts_macro::include_font;
-pub use {Font, UploadedFont};
+pub use crate::{Font, UploadedFont};
 
 #[repr(align(32))]
 pub struct AlignedData<T>(pub T);

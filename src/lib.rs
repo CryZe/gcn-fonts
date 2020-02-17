@@ -1,10 +1,11 @@
 #![no_std]
 
-extern crate gcn;
-extern crate gcn_fonts_macro;
-
 use core::cell::UnsafeCell;
 use gcn::gx;
+use proc_macro_hack::proc_macro_hack;
+
+#[proc_macro_hack]
+pub use gcn_fonts_macro::include_font;
 
 pub mod prelude;
 
@@ -17,7 +18,7 @@ pub struct DecodedGlyph<'a> {
     height: f32,
 }
 
-impl<'a> DecodedGlyph<'a> {
+impl DecodedGlyph<'_> {
     pub fn position(&self, x: f32, y: f32) -> PositionedGlyph {
         let y = y + self.glyph.descender;
         let ty = y - self.height;
